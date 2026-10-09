@@ -1,0 +1,70 @@
+[
+  {
+    "nombre": "Dólar oficial",
+    "tipo": "Moneda",
+    "valor": "Dato de muestra",
+    "variacion": "No actualizado",
+    "direccion": "up",
+    "hist": [
+      20,
+      28,
+      26,
+      40,
+      45,
+      54,
+      63,
+      70
+    ]
+  },
+  {
+    "nombre": "Inflación mensual",
+    "tipo": "Precios",
+    "valor": "Dato de muestra",
+    "variacion": "No actualizado",
+    "direccion": "up",
+    "hist": [
+      50,
+      48,
+      43,
+      46,
+      44,
+      48,
+      52,
+      56
+    ]
+  },
+  {
+    "nombre": "Tasa de referencia",
+    "tipo": "Tasas",
+    "valor": "Dato de muestra",
+    "variacion": "No actualizado",
+    "direccion": "down",
+    "hist": [
+      72,
+      70,
+      68,
+      65,
+      63,
+      60,
+      57,
+      54
+    ]
+  },
+  {
+    "nombre": "Índice salarial",
+    "tipo": "Índice",
+    "valor": "Dato de muestra",
+    "variacion": "No actualizado",
+    "direccion": "up",
+    "hist": [
+      20,
+      25,
+      35,
+      33,
+      45,
+      52,
+      61,
+      68
+    ]
+  }
+]

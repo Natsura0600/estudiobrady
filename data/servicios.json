@@ -1,0 +1,32 @@
+[
+  {
+    "id": "01",
+    "nombre": "Contabilidad",
+    "descripcion": "Registración contable, conciliaciones y preparación de información para conocer la situación de la actividad."
+  },
+  {
+    "id": "02",
+    "nombre": "Impuestos",
+    "descripcion": "Asistencia en el cumplimiento de obligaciones fiscales, vencimientos y organización de la documentación necesaria."
+  },
+  {
+    "id": "03",
+    "nombre": "Sueldos y cargas sociales",
+    "descripcion": "Liquidación de haberes y seguimiento de las obligaciones vinculadas al personal."
+  },
+  {
+    "id": "04",
+    "nombre": "Revisión y auditoría",
+    "descripcion": "Revisión de información contable y documentación, de acuerdo con el alcance acordado para cada trabajo."
+  },
+  {
+    "id": "05",
+    "nombre": "Gestión financiera",
+    "descripcion": "Organización de ingresos, gastos, pagos y proyecciones para acompañar la planificación del negocio."
+  },
+  {
+    "id": "06",
+    "nombre": "Consultoría para empresas",
+    "descripcion": "Acompañamiento para analizar necesidades administrativas y ordenar procesos de gestión."
+  }
+]
