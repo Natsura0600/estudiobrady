@@ -14,6 +14,10 @@ function readLocal(key) {
 }
 async function loadJson(name) {
   try {
+    const api = await fetch(`/api/content/${encodeURIComponent(name)}`, { cache: 'no-store' });
+    if (api.ok) { const result = await api.json(); if (Array.isArray(result)) return result; }
+  } catch (_) {}
+  try {
     const response = await fetch(`${root}data/${name}.json`);
     if (!response.ok) throw new Error('No se pudo cargar el archivo');
     const result = await response.json();
@@ -52,7 +56,7 @@ function render(which) {
     const id = new URLSearchParams(location.search).get('id');
     const article = DATA.noticias.find(item => String(item.id) === String(id)) || DATA.noticias[0];
     if (!article) return `<main class="section"><div class="wrap"><h1 class="display">Artículo no encontrado</h1><p>El artículo que buscás no está disponible.</p><a class="btn alt" href="${pageUrl('noticias')}">Volver a noticias</a></div></main>`;
-    return `<main class="section"><article class="wrap article-body"><div class="kicker">${safe(article.categoria)} · ${safe(article.fecha)}</div><h1 class="display">${safe(article.titulo)}</h1><p class="article-summary">${safe(article.resumen)}</p><div class="rule" style="margin:28px 0"></div><p>${safe(article.contenido)}</p><a class="btn alt" href="${pageUrl('noticias')}">← Volver a noticias</a></article></main>`;
+    return `<main class="section"><article class="wrap article-body"><div class="kicker">${safe(article.categoria)} · ${safe(article.fecha)}</div><h1 class="display">${safe(article.titulo)}</h1><p class="article-summary">${safe(article.resumen)}</p>${article.imagen ? `<img class="article-cover" src="${safe(article.imagen)}" alt="${safe(article.titulo)}" loading="lazy">` : ''}<div class="rule" style="margin:28px 0"></div><div class="article-text">${safe(article.contenido).replace(/\n/g,'<br><br>')}</div><a class="btn alt" href="${pageUrl('noticias')}">← Volver a noticias</a></article></main>`;
   }
   if (which === 'indicadores') return indicators();
   if (which === 'calculadoras') return calcs();
@@ -90,7 +94,7 @@ function initNews() {
     const q=query.value.trim().toLocaleLowerCase('es-AR'); let rows=DATA.noticias.filter(n=>(`${n.titulo||''} ${n.resumen||''} ${n.categoria||''}`).toLocaleLowerCase('es-AR').includes(q));
     if(category.value) rows=rows.filter(n=>n.categoria===category.value);
     rows.sort((a,b)=>sort.value==='old'?dateValue(a.fecha)-dateValue(b.fecha):dateValue(b.fecha)-dateValue(a.fecha));
-    container.innerHTML=rows.map(n=>`<article class="story"><span class="tag">${safe(n.categoria)}</span><div class="kicker">${safe(n.fecha)}</div><h2>${safe(n.titulo)}</h2><p class="micro">${safe(n.resumen)}</p><a href="${pageUrl('noticia')}?id=${encodeURIComponent(n.id)}">Leer artículo →</a></article>`).join('')||'<p class="panel">No hay artículos que coincidan con la búsqueda.</p>';
+    container.innerHTML=rows.map(n=>`<article class="story">${n.imagen ? `<img class="story-cover" src="${safe(n.imagen)}" alt="${safe(n.titulo)}" loading="lazy">` : ''}<span class="tag">${safe(n.categoria)}</span><div class="kicker">${safe(n.fecha)}</div><h2>${safe(n.titulo)}</h2><p class="micro">${safe(n.resumen)}</p><a href="${pageUrl('noticia')}?id=${encodeURIComponent(n.id)}">Leer artículo →</a></article>`).join('')||'<p class="panel">No hay artículos que coincidan con la búsqueda.</p>';
   }
   [query,category,sort].forEach(el=>el.addEventListener('input',draw)); draw();
 }
@@ -120,40 +124,70 @@ function initContact() {
     location.href=`mailto:contacto@estudiobrady.com?subject=${subject}&body=${body}`;
   });
 }
-function adminShell(){return `<main class="section"><div class="wrap"><div class="kicker">Administración local</div><h1 class="display">Contenido del sitio.</h1><p class="article-summary">Desde aquí podés editar el contenido guardado en este navegador o importar y exportar una copia JSON.</p><div class="dash"><div class="panel"><span class="micro">ARTÍCULOS</span><h2>${DATA.noticias.length}</h2></div><div class="panel"><span class="micro">INDICADORES</span><h2>${DATA.indicadores.length}</h2></div><div class="panel"><span class="micro">SERVICIOS</span><h2>${DATA.servicios.length}</h2></div><div class="panel"><span class="micro">ALMACENAMIENTO</span><h2>Local</h2></div></div><div class="adminbar"><button type="button" data-collection="noticias">Editar noticias</button><button type="button" data-collection="indicadores">Editar indicadores</button><button type="button" data-collection="servicios">Editar servicios</button><button type="button" id="export-json">Exportar JSON</button><button type="button" id="import-trigger">Importar JSON</button><input id="import-file" type="file" accept="application/json,.json" hidden></div><div id="cmslist"></div><p class="notice">Este panel no tiene inicio de sesión y los cambios se guardan solo en este navegador. No publiques información privada aquí. Para compartir cambios con todos los visitantes hace falta conectar un CMS o una base de datos.</p></div></main>`;}
+function adminShell(){return `<main class="section"><div class="wrap admin-wrap"><div class="kicker">Administración segura</div><h1 class="display">Contenido del sitio.</h1><p class="article-summary">Publicá artículos e imágenes. Los cambios se guardan en Cloudflare R2 y se reflejan en la web pública.</p><div id="admin-root"><div class="panel">Comprobando sesión…</div></div></div></main>`;}
 let activeCollection='noticias';
-function initAdmin(){
-  document.querySelectorAll('[data-collection]').forEach(button=>button.addEventListener('click',()=>editCollection(button.dataset.collection)));
-  document.getElementById('export-json')?.addEventListener('click',exportData);
-  document.getElementById('import-trigger')?.addEventListener('click',()=>document.getElementById('import-file').click());
-  document.getElementById('import-file')?.addEventListener('change',importData);
+let adminAuthenticated=false;
+function adminMessage(text,kind='info') { const el=document.getElementById('admin-message'); if(el){el.textContent=text;el.dataset.kind=kind;} }
+async function apiRequest(url, options={}) {
+  const response=await fetch(url,{credentials:'same-origin',...options,headers:{...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...(options.headers||{})}});
+  let data={}; try{data=await response.json();}catch(_){}
+  if(!response.ok) throw new Error(data.error||`Error HTTP ${response.status}`);
+  return data;
+}
+async function initAdmin(){
+  const rootEl=document.getElementById('admin-root'); if(!rootEl)return;
+  try { const session=await apiRequest('/api/auth/session'); adminAuthenticated=!!session.authenticated; }
+  catch(_) { adminAuthenticated=false; }
+  if(!adminAuthenticated){renderLogin();return;}
+  renderAdminDashboard();
+}
+function renderLogin(){
+  const host=document.getElementById('admin-root'); if(!host)return;
+  host.innerHTML=`<form id="admin-login" class="panel admin-login"><div class="kicker">Acceso restringido</div><h2>Ingresar al administrador</h2><p class="micro">Usá las credenciales configuradas en las variables de entorno de Vercel.</p><label>Usuario<input name="username" autocomplete="username" required value="admin"></label><label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label><button class="btn" type="submit">Iniciar sesión</button><p id="login-error" class="msg micro" role="status"></p></form>`;
+  host.querySelector('#admin-login').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;const button=form.querySelector('button');button.disabled=true;const error=form.querySelector('#login-error');error.textContent='Verificando…';try{const fd=new FormData(form);await apiRequest('/api/auth/login',{method:'POST',body:JSON.stringify({username:fd.get('username'),password:fd.get('password')})});adminAuthenticated=true;for(const key of Object.keys(DATA)){try{const rows=await apiRequest(`/api/content/${key}`);if(Array.isArray(rows))DATA[key]=rows;}catch(_){}}renderAdminDashboard();}catch(err){error.textContent=err.message;button.disabled=false;}});
+}
+function renderAdminDashboard(){
+  const host=document.getElementById('admin-root');if(!host)return;
+  host.innerHTML=`<div class="dash"><div class="panel"><span class="micro">ARTÍCULOS</span><h2>${DATA.noticias.length}</h2></div><div class="panel"><span class="micro">INDICADORES</span><h2>${DATA.indicadores.length}</h2></div><div class="panel"><span class="micro">SERVICIOS</span><h2>${DATA.servicios.length}</h2></div><div class="panel"><span class="micro">ALMACENAMIENTO</span><h2>Cloudflare R2</h2></div></div><div class="adminbar"><button type="button" data-collection="noticias">Noticias</button><button type="button" data-collection="indicadores">Indicadores</button><button type="button" data-collection="servicios">Servicios</button><button type="button" id="logout-admin">Cerrar sesión</button></div><p id="admin-message" class="notice" role="status">Los cambios se guardan en R2 al pulsar «Guardar y publicar».</p><div id="cmslist"></div>`;
+  host.querySelectorAll('[data-collection]').forEach(button=>button.addEventListener('click',()=>editCollection(button.dataset.collection)));
+  host.querySelector('#logout-admin').addEventListener('click',async()=>{try{await apiRequest('/api/auth/logout',{method:'POST',body:'{}'});}catch(_){}adminAuthenticated=false;renderLogin();});
   editCollection('noticias');
 }
 function editCollection(key){
-  if(!DATA[key])return; activeCollection=key;
-  const container=document.getElementById('cmslist'); if(!container)return;
-  container.innerHTML=`<h2>${key==='noticias'?'Noticias y artículos':key==='indicadores'?'Indicadores':'Servicios'}</h2>${DATA[key].map((item,index)=>`<div class="cmsrow"><span>${safe(item.titulo||item.nombre||item.valor||'Elemento sin título')}</span><span>${safe(item.categoria||item.tipo||item.id||'')}</span><span><button type="button" data-edit="${index}">Editar</button><button type="button" data-delete="${index}" aria-label="Eliminar elemento">Eliminar</button></span></div>`).join('')}<button class="btn" type="button" id="add-item" style="margin-top:20px">+ Agregar elemento</button>`;
-  container.querySelectorAll('[data-edit]').forEach(button=>button.addEventListener('click',()=>editItem(key,Number(button.dataset.edit))));
-  container.querySelectorAll('[data-delete]').forEach(button=>button.addEventListener('click',()=>deleteItem(key,Number(button.dataset.delete))));
-  container.querySelector('#add-item')?.addEventListener('click',()=>addItem(key));
+  if(!DATA[key])return;activeCollection=key;const container=document.getElementById('cmslist');if(!container)return;
+  const title=key==='noticias'?'Noticias y artículos':key==='indicadores'?'Indicadores económicos':'Servicios profesionales';
+  container.innerHTML=`<div class="cms-heading"><h2>${title}</h2><button class="btn" type="button" id="add-item">+ Nuevo elemento</button></div><div class="cms-items">${DATA[key].map((item,index)=>`<div class="cmsrow"><div class="cmsrow-main">${key==='noticias'&&item.imagen?`<img class="cms-thumb" src="${safe(item.imagen)}" alt="">`:''}<span><strong>${safe(item.titulo||item.nombre||item.valor||'Elemento sin título')}</strong><small>${safe(item.categoria||item.tipo||item.fecha||'')}</small></span></div><span class="cms-state">${key==='noticias'?safe(item.estado||'publicado'):''}</span><span><button type="button" data-edit="${index}">Editar</button> <button type="button" data-delete="${index}">Eliminar</button></span></div>`).join('')||'<p class="panel">Todavía no hay elementos.</p>'}</div><div id="editor"></div>`;
+  container.querySelectorAll('[data-edit]').forEach(b=>b.addEventListener('click',()=>editItem(key,Number(b.dataset.edit))));
+  container.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>deleteItem(key,Number(b.dataset.delete))));
+  container.querySelector('#add-item').addEventListener('click',()=>addItem(key));
+}
+function addItem(key){
+  const id=key==='noticias'?Date.now():String(Date.now());
+  const item=key==='noticias'?{id,categoria:'General',fecha:new Date().toLocaleDateString('es-AR'),titulo:'',resumen:'',contenido:'',imagen:'',estado:'borrador'}:key==='indicadores'?{id,nombre:'',tipo:'Referencia',valor:'',variacion:'',direccion:'up',hist:[]}:{id,nombre:'',descripcion:''};
+  DATA[key].unshift(item);editCollection(key);editItem(key,0);
 }
 function editItem(key,index){
-  const item=DATA[key][index]; if(!item)return;
-  const fields=key==='noticias'?['titulo','categoria','fecha','resumen','contenido']:key==='indicadores'?['nombre','tipo','valor','variacion','direccion']:['nombre','descripcion'];
-  const changes={};
-  for(const field of fields){const value=prompt(`Editar ${field}`,item[field]??'');if(value===null)return;changes[field]=value;}
-  Object.assign(item,changes);
-  if(key==='indicadores'&&!Array.isArray(item.hist))item.hist=[25,35,45,40,55];
-  persist(key);editCollection(key);
+  const item=DATA[key][index];if(!item)return;const host=document.getElementById('editor');if(!host)return;
+  const isNews=key==='noticias';const fields=isNews?[['titulo','Título','text'],['categoria','Categoría','text'],['fecha','Fecha','text'],['resumen','Resumen','textarea'],['contenido','Contenido','textarea']]:key==='indicadores'?[['nombre','Nombre','text'],['tipo','Tipo','text'],['valor','Valor','text'],['variacion','Variación','text'],['direccion','Dirección (up/down)','text']]:[['nombre','Nombre del servicio','text'],['descripcion','Descripción','textarea']];
+  host.innerHTML=`<form id="content-editor" class="panel content-editor"><div class="cms-heading"><h2>${isNews?'Editar noticia':key==='indicadores'?'Editar indicador':'Editar servicio'}</h2><span class="micro">Los campos con * son obligatorios</span></div><div class="editor-grid">${fields.map(([name,label,type])=>`<label class="${type==='textarea'?'editor-wide':''}">${label}${name==='titulo'||name==='nombre'?' *':''}${type==='textarea'?`<textarea name="${name}" ${name==='contenido'?'rows="9"':'rows="3"'} ${name==='titulo'||name==='nombre'?'required':''}>${safe(item[name]??'')}</textarea>`:`<input name="${name}" value="${safe(item[name]??'')}" ${name==='titulo'||name==='nombre'?'required':''}>`}</label>`).join('')}${isNews?`<label>Estado<select name="estado"><option value="borrador" ${item.estado==='borrador'?'selected':''}>Borrador</option><option value="publicado" ${!item.estado||item.estado==='publicado'?'selected':''}>Publicado</option><option value="archivado" ${item.estado==='archivado'?'selected':''}>Archivado</option></select></label><label class="editor-wide">Imagen de portada<input type="file" name="imagen-file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif"><small>Hasta 8 MB. Se guarda en Cloudflare R2.</small></label><div class="editor-wide image-preview">${item.imagen?`<img src="${safe(item.imagen)}" alt="Portada actual"><button type="button" id="remove-image">Quitar portada</button>`:'Sin portada cargada'}<input type="hidden" name="imagen" value="${safe(item.imagen||'')}"></div>`:''}</div><div class="editor-actions"><button type="submit" class="btn">Guardar y publicar</button><button type="button" class="btn alt" id="cancel-editor">Cancelar</button><span class="micro" id="editor-status" role="status"></span></div></form>`;
+  host.querySelector('#cancel-editor').addEventListener('click',()=>host.innerHTML='');
+  host.querySelector('#remove-image')?.addEventListener('click',()=>{host.querySelector('[name="imagen"]').value='';host.querySelector('.image-preview').innerHTML='Portada quitada<input type="hidden" name="imagen" value="">';});
+  host.querySelector('#content-editor').addEventListener('submit',async event=>{
+    event.preventDefault();const form=event.currentTarget;const button=form.querySelector('button[type="submit"]');const status=form.querySelector('#editor-status');button.disabled=true;status.textContent='Guardando…';
+    try{
+      const fd=new FormData(form);const updates={...item};
+      for(const [name] of fields) updates[name]=String(fd.get(name)||'').trim();
+      if(isNews){updates.estado=String(fd.get('estado')||'borrador');updates.imagen=String(fd.get('imagen')||'');if(!updates.id)updates.id=Date.now();}
+      if(key==='indicadores'&&!Array.isArray(updates.hist))updates.hist=[];
+      const file=form.querySelector('[name="imagen-file"]')?.files?.[0];
+      if(file){status.textContent='Preparando subida…';const signed=await apiRequest('/api/upload',{method:'POST',body:JSON.stringify({contentType:file.type,size:file.size})});const put=await fetch(signed.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},body:file});if(!put.ok)throw new Error('No se pudo subir la imagen. Revisá CORS y el dominio público de R2.');updates.imagen=signed.publicUrl;}
+      DATA[key][index]=updates;
+      const saved=await apiRequest(`/api/content/${key}`,{method:'PUT',body:JSON.stringify(DATA[key])});
+      status.textContent=`Guardado en R2. ${saved.count} elementos.`;adminMessage('Cambios guardados en Cloudflare R2. La web pública se actualizará automáticamente.','success');
+      editCollection(key);adminMessage('Cambios guardados en Cloudflare R2. La web pública se actualizará automáticamente.','success');
+    }catch(err){status.textContent=err.message;button.disabled=false;adminMessage(err.message,'error');}
+  });
 }
-function deleteItem(key,index){if(!confirm('¿Querés eliminar este elemento?'))return;DATA[key].splice(index,1);persist(key);editCollection(key);}
-function addItem(key){
-  const name=prompt(key==='noticias'?'Título del artículo':key==='indicadores'?'Nombre del indicador':'Nombre del servicio');if(!name||!name.trim())return;
-  const id=Date.now();
-  const item=key==='noticias'?{id,categoria:'General',fecha:new Date().toLocaleDateString('es-AR'),titulo:name.trim(),resumen:'Agregar un resumen descriptivo.',contenido:'Completar el contenido del artículo.'}:key==='indicadores'?{id,nombre:name.trim(),tipo:'Referencia',valor:'A completar',variacion:'Dato ilustrativo',direccion:'up',hist:[25,35,45,40,55]}:{id:String(DATA[key].length+1).padStart(2,'0'),nombre:name.trim(),descripcion:'Completar la descripción del servicio.'};
-  DATA[key].push(item);persist(key);editCollection(key);
-}
-function persist(key){try{localStorage.setItem(`brady_${key}`,JSON.stringify(DATA[key]));}catch(_){alert('No se pudieron guardar los cambios en este navegador.');}}
-function exportData(){const blob=new Blob([JSON.stringify(DATA,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='estudio-brady-contenido.json';document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);}
-function importData(event){const file=event.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const parsed=JSON.parse(reader.result);for(const key of Object.keys(DATA)){if(Array.isArray(parsed[key])){DATA[key]=parsed[key];persist(key);}}alert('Importación completada. Revisá las secciones para confirmar los datos.');editCollection(activeCollection);}catch(_){alert('El archivo no es un JSON válido o no tiene el formato esperado.');}event.target.value='';};reader.readAsText(file);}
+async function deleteItem(key,index){if(!confirm('¿Querés eliminar este elemento? Esta acción se guardará en el contenido público.'))return;const previous=[...DATA[key]];DATA[key].splice(index,1);try{await apiRequest(`/api/content/${key}`,{method:'PUT',body:JSON.stringify(DATA[key])});editCollection(key);adminMessage('Elemento eliminado y cambios guardados.','success');}catch(err){DATA[key]=previous;editCollection(key);adminMessage(err.message,'error');}}
+
 boot();
